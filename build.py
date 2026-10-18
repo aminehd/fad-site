@@ -184,7 +184,10 @@ def day_body(f, vids, prefix="", day_dir=None):
             # re-render a new URL.
             clips = [f'<video src="{prefix}{fn}.mp4?v={stamp(fn)}" autoplay '
                      f'loop muted playsinline></video>'
-                     for fn in re.findall(r"^def (\w+)", body, re.M)
+                     for fn in (re.findall(r"^def (\w+)", body, re.M)
+                                # a render that is a plain call, not a
+                                # decorated function, names itself with name=
+                                + re.findall(r"""name=["'](\w+)["']""", body))
                      if f"{fn}.mp4" in vids]
             # a cell that renders something shows the code and the clip as one
             # row; a cell that renders nothing is just code
@@ -193,7 +196,19 @@ def day_body(f, vids, prefix="", day_dir=None):
     return out
 
 
-def render_day(f):
+def page_of(f):
+    """Which page a day belongs to.
+
+    `<!-- page: fun -->` anywhere in a day file sends it to fun.html. The
+    marker lives inside a markdown cell, so it is an HTML comment on the
+    published page and invisible. Everything else is work and goes on the
+    front page.
+    """
+    m = re.search(r"page:\s*(\w+)", f.read_text())
+    return m.group(1) if m else "main"
+
+
+def render_day(f, back="../index.html", back_txt="all formulas"):
     slug = f.stem
     d = SITE / slug
     d.mkdir(parents=True, exist_ok=True)
@@ -201,7 +216,7 @@ def render_day(f):
     title = slug.split("-", 3)[-1].replace("-", " ")
     vids = sorted(p.name for p in d.glob("*.mp4"))
     html = [HEAD.format(title=title, pyg=FMT.get_style_defs(".highlight")),
-            '<a class=back href="../index.html">&larr; all formulas</a>']
+            f'<a class=back href="{back}">&larr; {back_txt}</a>']
     html += day_body(f, vids, day_dir=d)
     (d / "index.html").write_text("\n".join(html))
     return slug, title, vids, made
@@ -248,33 +263,63 @@ def main():
     SITE.mkdir(exist_ok=True)
     lock = open(ROOT / ".build.lock", "w")
     fcntl.flock(lock, fcntl.LOCK_EX)
-    days, rows = [], []
+    work, fun = [], []
     for f in sorted(DAYS.glob("*.py"), reverse=True):
-        slug, title, vids, made = render_day(f)
+        where = page_of(f)
+        back, txt = (("../fun.html", "for fun") if where == "fun"
+                     else ("../index.html", "all of it"))
+        slug, title, vids, made = render_day(f, back, txt)
         for n, gk, mk in made:
             print(f"  {n}  {gk} KB -> {mk} KB")
-        days.append((f, slug, title, vids))
+        (fun if where == "fun" else work).append((f, slug, title, vids))
 
+    def scroll(days, prefix_dir=True):
+        "The long scroll of day bodies, shared by both pages."
+        out = []
+        if len(days) > 1:
+            out.append("<p class=dim>" + " &middot; ".join(
+                f'<a href="#{s_}">{ti}</a>' for _, s_, ti, _ in days) + "</p>")
+        for f, slug, title, vids in days:
+            out.append(f'<hr id="{slug}" style="border:0;border-top:1px solid '
+                       f'var(--line);margin:46px 0 22px">')
+            out.append(f'<div class=dim>{slug.rsplit("-", 1)[0][:10]} &middot; '
+                       f'<a class=back href="{slug}/index.html">permalink</a>'
+                       f'</div>')
+            body = day_body(f, vids, prefix=f"{slug}/", day_dir=SITE / slug)
+            out += [c.replace("<h1>", '<div class=dayhead>')
+                     .replace("</h1>", "</div>") for c in body]
+        return out
+
+    # The front page is the work: the header, then the analysis days. The
+    # pretty ones are a door at the bottom, not the first thing you meet.
     idx = [HEAD.format(title="formula a day",
                        pyg=FMT.get_style_defs(".highlight"))]
     intro = ROOT / "intro.md"
     if intro.exists():
         idx.append(md.markdown(intro.read_text(),
                                extensions=["tables", "fenced_code"]))
-    idx += gallery_html()
-    if len(days) > 1:                       # a jump list, once there are a few
-        idx.append("<p class=dim>" + " &middot; ".join(
-            f'<a href="#{s}">{ti}</a>' for _, s, ti, _ in days) + "</p>")
-    for f, slug, title, vids in days:
-        idx.append(f'<hr id="{slug}" style="border:0;border-top:1px solid '
-                   f'var(--line);margin:46px 0 22px">')
-        idx.append(f'<div class=dim>{slug.rsplit("-", 1)[0][:10]} &middot; '
-                   f'<a class=back href="{slug}/index.html">permalink</a></div>')
-        body = day_body(f, vids, prefix=f"{slug}/", day_dir=SITE / slug)
-        idx += [c.replace("<h1>", '<div class=dayhead>')
-                 .replace("</h1>", "</div>") for c in body]
+    idx += scroll(work)
+    if fun:
+        idx.append('<hr style="border:0;border-top:1px solid var(--line);'
+                   'margin:56px 0 18px">'
+                   '<p>If you want to see more randomly generated things &mdash; '
+                   'shapes, flows and clouds made for no reason at all &mdash; '
+                   '<a href="fun.html">they are all on this page</a>.</p>')
     (SITE / "index.html").write_text("\n".join(idx))
-    print(f"  built {len(days)} day(s) -> docs/  (index is the full scroll)")
+
+    page2 = [HEAD.format(title="for fun",
+                         pyg=FMT.get_style_defs(".highlight")),
+             '<a class=back href="index.html">&larr; back to the work</a>',
+             '<h1>for fun</h1>',
+             '<p>Randomly generated things. Same framework, no point to make '
+             '&mdash; shapes, flows and clouds that turned out worth '
+             'keeping.</p>']
+    page2 += gallery_html()
+    page2 += scroll(fun)
+    (SITE / "fun.html").write_text("\n".join(page2))
+
+    days = work + fun
+    print(f"  built {len(work)} work + {len(fun)} fun -> docs/")
 
 
 if __name__ == "__main__":
