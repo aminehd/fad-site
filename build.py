@@ -208,6 +208,12 @@ def page_of(f):
     return m.group(1) if m else "main"
 
 
+def order_of(f):
+    "`<!-- order: N -->` sorts a day inside its page. Lower is earlier."
+    m = re.search(r"order:\s*(\d+)", f.read_text())
+    return int(m.group(1)) if m else 5
+
+
 def render_day(f, back="../index.html", back_txt="all formulas"):
     slug = f.stem
     d = SITE / slug
@@ -271,7 +277,11 @@ def main():
         slug, title, vids, made = render_day(f, back, txt)
         for n, gk, mk in made:
             print(f"  {n}  {gk} KB -> {mk} KB")
-        groups.setdefault(where, []).append((f, slug, title, vids))
+        groups.setdefault(where, []).append(
+            (order_of(f), f, slug, title, vids))
+    for g in groups.values():               # order marker first, then date
+        g.sort(key=lambda r: r[0])
+    groups = {k: [r[1:] for r in g] for k, g in groups.items()}
     work = groups.pop("main", [])
     fun = groups.pop("fun", [])
 
@@ -300,16 +310,9 @@ def main():
     if intro.exists():
         idx.append(md.markdown(intro.read_text(),
                                extensions=["tables", "fenced_code"]))
-    # The same door, top and bottom: people who scroll and people who do not.
-    door = ('<p>If you want to see more randomly generated things &mdash; '
-            'shapes, flows and clouds made for no reason at all &mdash; '
-            '<a href="fun.html">they are all on this page</a>.</p>')
-    if fun:
-        idx.append(door)
+    # The link to fun.html lives in intro.md now, so it is written once,
+    # by hand, where the rest of the welcome is.
     idx += scroll(work)
-    if fun:
-        idx.append('<hr style="border:0;border-top:1px solid var(--line);'
-                   'margin:56px 0 18px">' + door)
     (SITE / "index.html").write_text("\n".join(idx))
 
     page2 = [HEAD.format(title="for fun",
