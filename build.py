@@ -298,13 +298,16 @@ def main():
     if intro.exists():
         idx.append(md.markdown(intro.read_text(),
                                extensions=["tables", "fenced_code"]))
+    # The same door, top and bottom: people who scroll and people who do not.
+    door = ('<p>If you want to see more randomly generated things &mdash; '
+            'shapes, flows and clouds made for no reason at all &mdash; '
+            '<a href="fun.html">they are all on this page</a>.</p>')
+    if fun:
+        idx.append(door)
     idx += scroll(work)
     if fun:
         idx.append('<hr style="border:0;border-top:1px solid var(--line);'
-                   'margin:56px 0 18px">'
-                   '<p>If you want to see more randomly generated things &mdash; '
-                   'shapes, flows and clouds made for no reason at all &mdash; '
-                   '<a href="fun.html">they are all on this page</a>.</p>')
+                   'margin:56px 0 18px">' + door)
     (SITE / "index.html").write_text("\n".join(idx))
 
     page2 = [HEAD.format(title="for fun",
