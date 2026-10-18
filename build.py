@@ -263,15 +263,17 @@ def main():
     SITE.mkdir(exist_ok=True)
     lock = open(ROOT / ".build.lock", "w")
     fcntl.flock(lock, fcntl.LOCK_EX)
-    work, fun = [], []
+    groups = {}
     for f in sorted(DAYS.glob("*.py"), reverse=True):
         where = page_of(f)
-        back, txt = (("../fun.html", "for fun") if where == "fun"
-                     else ("../index.html", "all of it"))
+        back, txt = (("../index.html", "all of it") if where == "main"
+                     else (f"../{where}.html", where))
         slug, title, vids, made = render_day(f, back, txt)
         for n, gk, mk in made:
             print(f"  {n}  {gk} KB -> {mk} KB")
-        (fun if where == "fun" else work).append((f, slug, title, vids))
+        groups.setdefault(where, []).append((f, slug, title, vids))
+    work = groups.pop("main", [])
+    fun = groups.pop("fun", [])
 
     def scroll(days, prefix_dir=True):
         "The long scroll of day bodies, shared by both pages."
@@ -321,8 +323,21 @@ def main():
     page2 += scroll(fun)
     (SITE / "fun.html").write_text("\n".join(page2))
 
-    days = work + fun
-    print(f"  built {len(work)} work + {len(fun)} fun -> docs/")
+    # Any other marker gets its own page, unlisted. Somewhere to park a day
+    # that is still being worked on without taking it off the internet or
+    # putting it in front of a visitor.
+    for where, days_ in groups.items():
+        pg = [HEAD.format(title=where,
+                          pyg=FMT.get_style_defs(".highlight")),
+              '<a class=back href="index.html">&larr; back to the work</a>',
+              f'<h1>{where}</h1>',
+              '<p class=dim>In progress. Not linked from anywhere.</p>']
+        pg += scroll(days_)
+        (SITE / f"{where}.html").write_text("\n".join(pg))
+
+    days = work + fun + [d for g in groups.values() for d in g]
+    print(f"  built {len(work)} work + {len(fun)} fun + "
+          f"{sum(len(g) for g in groups.values())} parked -> docs/")
 
 
 if __name__ == "__main__":
